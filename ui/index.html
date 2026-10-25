@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>blackbox</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='2' y='2' width='12' height='12' rx='2' fill='%23111'/><circle cx='11' cy='5' r='1.6' fill='%23ff5a36'/></svg>">
+<style>
+:root {
+  --bg: #0d0e10; --panel: #131418; --raise: #1a1c21; --line: #24262c; --line2: #2e3138;
+  --text: #e6e6e3; --dim: #8b8d93; --faint: #5c5f66;
+  --rec: #ff5a36; --ok: #5fd38d; --warn: #f2c14e; --err: #ff6b6b;
+  --add-bg: rgba(95,211,141,.12); --add: #7ee2a5; --del-bg: rgba(255,107,107,.12); --del: #ff9a9a;
+  --user: #7aa7ff; --asst: #c79bff; --sys: #f2c14e; --tool: #4fd1c5;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --raise: #f0efeb; --line: #e4e2dc; --line2: #d6d3cb;
+    --text: #1b1c1e; --dim: #6a6c70; --faint: #9a9b9e;
+    --rec: #e8431d; --ok: #1f9d55; --warn: #b7791f; --err: #d64545;
+    --add-bg: rgba(31,157,85,.10); --add: #17723f; --del-bg: rgba(214,69,69,.10); --del: #a83232;
+    --user: #2f6fe0; --asst: #8a4fd8; --sys: #a46b00; --tool: #0f8a7e;
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); }
+button { font: inherit; color: inherit; background: var(--raise); border: 1px solid var(--line2); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:hover { border-color: var(--faint); }
+button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+button:disabled { opacity: .4; cursor: default; }
+input[type=search] { font: 12px var(--mono); color: var(--text); background: var(--raise); border: 1px solid var(--line2); border-radius: 6px; padding: 5px 9px; width: 220px; outline: none; }
+input[type=search]:focus { border-color: var(--faint); }
+.mono { font-family: var(--mono); }
+
+/* layout */
+.app { display: grid; grid-template-rows: auto 1fr; height: 100vh; }
+header { display: flex; align-items: center; gap: 18px; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.logo { font: 600 14px var(--mono); letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 0 var(--rec); animation: pulse 2s infinite; }
+.dot.off { background: var(--faint); animation: none; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,90,54,.5);} 70% { box-shadow: 0 0 0 6px rgba(255,90,54,0);} 100% { box-shadow: 0 0 0 0 rgba(255,90,54,0);} }
+.stats { display: flex; gap: 16px; font: 12px var(--mono); color: var(--dim); }
+.stats b { color: var(--text); font-weight: 500; }
+.spacer { flex: 1; }
+main { display: grid; grid-template-columns: minmax(420px, 46%) 1fr; min-height: 0; }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 45% 55%; } }
+
+/* list */
+.list { overflow: auto; border-right: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+thead th { position: sticky; top: 0; background: var(--bg); color: var(--faint); font-weight: 500; text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; z-index: 1; }
+th.r, td.r { text-align: right; }
+tbody tr { cursor: pointer; border-bottom: 1px solid var(--line); }
+tbody tr:hover { background: var(--panel); }
+tbody tr.sel { background: var(--raise); box-shadow: inset 2px 0 0 var(--rec); }
+tbody tr.new { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: rgba(255,90,54,.18);} to { background: transparent; } }
+td { padding: 6px 8px; white-space: nowrap; }
+td.model { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+td.dim, .dim { color: var(--dim); }
+.tag { display: inline-block; font-size: 11px; padding: 0 5px; border-radius: 4px; background: var(--raise); border: 1px solid var(--line2); color: var(--dim); margin-left: 6px; }
+.st { font-weight: 600; } .st.ok { color: var(--ok); } .st.bad { color: var(--err); } .st.warn { color: var(--warn); }
+.prov { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+.prov.anthropic { background: #d97757; } .prov.openai { background: #74aa9c; }
+input[type=checkbox] { accent-color: var(--rec); margin: 0; cursor: pointer; }
+.empty { padding: 48px 24px; color: var(--dim); max-width: 520px; }
+.empty h2 { font: 600 15px var(--sans); color: var(--text); margin: 0 0 8px; }
+.empty pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: 12px var(--mono); color: var(--text); overflow-x: auto; }
+
+/* detail */
+.detail { overflow: auto; min-width: 0; }
+.dhead { padding: 14px 18px 0; position: sticky; top: 0; background: var(--bg); z-index: 2; border-bottom: 1px solid var(--line); }
+.dtitle { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.dtitle h1 { font: 600 15px var(--mono); margin: 0; }
+.metrics { display: flex; flex-wrap: wrap; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin: 12px 0; }
+.metric { background: var(--panel); padding: 8px 10px; flex: 1 1 100px; }
+.metric .k { font-size: 11px; color: var(--faint); }
+.metric .v { font: 500 14px var(--mono); margin-top: 2px; }
+.metric .v small { font-size: 11px; color: var(--dim); }
+.tabs { display: flex; gap: 2px; }
+.tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 10px; color: var(--dim); }
+.tabs button.on { color: var(--text); border-bottom-color: var(--rec); }
+.dbody { padding: 16px 18px 48px; }
+.errbox { background: var(--del-bg); color: var(--del); border-radius: 6px; padding: 8px 10px; font: 12px var(--mono); margin-bottom: 12px; }
+
+/* conversation */
+.msg { border: 1px solid var(--line); border-radius: 8px; margin-bottom: 10px; background: var(--panel); overflow: hidden; }
+.msg > .who { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 6px 10px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; }
+.msg > .who span { color: var(--faint); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.who.system { color: var(--sys); } .who.user { color: var(--user); } .who.assistant { color: var(--asst); } .who.tool, .who.tools { color: var(--tool); }
+.msg.response { border-color: var(--asst); }
+.block { padding: 8px 10px; white-space: pre-wrap; word-break: break-word; font: 12.5px/1.5 var(--mono); }
+.block + .block { border-top: 1px dashed var(--line); }
+.block .lbl { display: block; font-size: 11px; color: var(--tool); margin-bottom: 3px; }
+.block.thinking { color: var(--dim); font-style: italic; }
+.collapsed { max-height: 220px; overflow: hidden; position: relative; }
+.collapsed::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 50px; background: linear-gradient(transparent, var(--panel)); }
+.more { display: block; width: 100%; border: none; border-top: 1px solid var(--line); border-radius: 0; background: none; color: var(--dim); font-size: 11px; padding: 5px; }
+.section-label { font: 11px var(--mono); color: var(--faint); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: .06em; }
+
+pre.code { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
+.jk { color: var(--user); } .js { color: var(--add); } .jn { color: var(--warn); } .jb { color: var(--asst); }
+
+/* diff */
+.diff { font: 12px/1.5 var(--mono); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.diff div { white-space: pre-wrap; word-break: break-word; padding: 0 10px; }
+.diff .a { background: var(--add-bg); color: var(--add); }
+.diff .d { background: var(--del-bg); color: var(--del); }
+.diff .s { color: var(--faint); background: var(--raise); padding: 2px 10px; font-size: 11px; }
+.delta.up { color: var(--err); } .delta.down { color: var(--ok); }
+.placeholder { color: var(--faint); padding: 48px 18px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo"><span class="dot" id="live"></span>blackbox</div>
+    <div class="stats" id="stats"></div>
+    <div class="spacer"></div>
+    <input type="search" id="q" placeholder="filter model, tag, path…">
+    <button id="diffBtn" disabled>Diff</button>
+    <button id="pauseBtn" title="Pause live updates">Pause</button>
+  </header>
+  <main>
+    <div class="list" id="list"></div>
+    <div class="detail" id="detail"><div class="placeholder">Select a call to inspect it. Tick two to diff them.</div></div>
+  </main>
+</div>
+<script>
+const API = './api';
+const state = { calls: [], selected: null, checked: [], paused: false, q: '', tab: 'conversation', maxId: 0 };
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ---------- formatting ----------
+const tok = n => n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n||0);
+const usd = v => v == null ? '—' : v === 0 ? '$0' : v < 0.01 ? '$'+v.toFixed(4) : '$'+v.toFixed(v < 1 ? 3 : 2);
+const secs = ms => ms == null ? '—' : ms < 1000 ? ms+'ms' : (ms/1000).toFixed(ms < 10000 ? 2 : 1)+'s';
+const when = iso => {
+  const d = new Date(iso), now = new Date();
+  const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return d.toDateString() === now.toDateString() ? t : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + t;
+};
+const promptTok = c => c.input_tokens + c.cache_read_tokens + c.cache_write_tokens;
+const stClass = s => s >= 500 || s === 0 || s === 499 ? 'bad' : s >= 400 ? 'warn' : 'ok';
+const tryJSON = s => { try { return JSON.parse(s); } catch { return null; } };
+
+// ---------- data ----------
+async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+
+async function loadList(reset) {
+  const qs = new URLSearchParams({ limit: 300, q: state.q, after: reset ? 0 : state.maxId });
+  const rows = await getJSON(`${API}/calls?${qs}`);
+  if (reset) { state.calls = rows; renderList(); }
+  else if (rows.length) { state.calls = rows.concat(state.calls).slice(0, 1000); renderList(new Set(rows.map(r => r.id))); }
+  state.maxId = Math.max(state.maxId, ...state.calls.map(c => c.id), 0);
+}
+async function loadStats() {
+  const s = await getJSON(`${API}/stats`);
+  const t = s.today;
+  $('#stats').innerHTML = `<span>today <b>${t.calls}</b> calls</span><span><b>${tok(t.input_tokens)}</b> in · <b>${tok(t.output_tokens)}</b> out</span><span><b>${usd(t.cost_usd)}</b>${t.unpriced_calls ? ` <span title="${t.unpriced_calls} calls use models with no known price">+?</span>` : ''}</span>`;
+}
+
+// ---------- list ----------
+function renderList(fresh = new Set()) {
+  const el = $('#list');
+  if (!state.calls.length) {
+    const base = location.origin;
+    el.innerHTML = state.q ? `<div class="empty">No calls match “${esc(state.q)}”.</div>` : `<div class="empty">
+      <h2>Waiting for calls…</h2>
+      <p>Point any Anthropic or OpenAI client at blackbox and calls show up here live.</p>
+      <pre>export ANTHROPIC_BASE_URL=${base}\nexport OPENAI_BASE_URL=${base}/v1</pre>
+      <p>Tag runs to group them: send a <span class="mono">X-Blackbox-Tag: my-experiment</span> header.</p></div>`;
+    return;
+  }
+  el.innerHTML = `<table><thead><tr><th></th><th>#</th><th>time</th><th>model</th><th>st</th><th class="r">in</th><th class="r">out</th><th class="r">cost</th><th class="r">time</th></tr></thead><tbody>${
+    state.calls.map(c => `<tr data-id="${c.id}" class="${c.id === state.selected ? 'sel' : ''} ${fresh.has(c.id) ? 'new' : ''}">
+      <td><input type="checkbox" data-check="${c.id}" ${state.checked.includes(c.id) ? 'checked' : ''}></td>
+      <td class="dim">${c.id}</td>
+      <td class="dim">${when(c.started_at)}</td>
+      <td class="model" title="${esc(c.model || c.path)}"><span class="prov ${c.provider}"></span>${esc(c.model || c.path)}${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}</td>
+      <td><span class="st ${stClass(c.status)}">${c.status || 'ERR'}</span></td>
+      <td class="r">${tok(promptTok(c))}</td>
+      <td class="r">${tok(c.output_tokens)}</td>
+      <td class="r">${usd(c.cost_usd)}</td>
+      <td class="r dim">${secs(c.duration_ms)}</td></tr>`).join('')}</tbody></table>`;
+}
+$('#list').addEventListener('click', e => {
+  const cb = e.target.closest('[data-check]');
+  if (cb) {
+    const id = +cb.dataset.check;
+    state.checked = cb.checked ? state.checked.concat(id).slice(-2) : state.checked.filter(x => x !== id);
+    renderList(); updateDiffBtn(); return;
+  }
+  const tr = e.target.closest('tr[data-id]');
+  if (tr) select(+tr.dataset.id);
+});
+function updateDiffBtn() {
+  const b = $('#diffBtn'); b.disabled = state.checked.length !== 2;
+  b.textContent = state.checked.length === 2 ? `Diff #${Math.min(...state.checked)} ↔ #${Math.max(...state.checked)}` : 'Diff';
+  b.classList.toggle('primary', state.checked.length === 2);
+}
+
+// ---------- detail ----------
+const cache = new Map();
+async function getCall(id) { if (!cache.has(id)) cache.set(id, await getJSON(`${API}/calls/${id}`)); return cache.get(id); }
+
+async function select(id) {
+  state.selected = id;
+  document.querySelectorAll('tr.sel').forEach(r => r.classList.remove('sel'));
+  document.querySelector(`tr[data-id="${id}"]`)?.classList.add('sel');
+  const c = await getCall(id);
+  if (state.selected === id) renderDetail(c);
+}
+
+function metric(k, v) { return `<div class="metric"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+
+function renderDetail(c) {
+  const tabs = ['conversation', 'request', 'response', 'headers'];
+  const cacheParts = [c.cache_read_tokens && `${tok(c.cache_read_tokens)} cache hit`, c.cache_write_tokens && `${tok(c.cache_write_tokens)} cache write`].filter(Boolean);
+  const cacheNote = cacheParts.length ? ` <small>${cacheParts.join(' · ')}</small>` : '';
+  $('#detail').innerHTML = `<div class="dhead">
+    <div class="dtitle"><h1>#${c.id} ${esc(c.model || '(unknown model)')}</h1>
+      <span class="dim mono">${esc(c.method)} ${esc(c.path)} · ${esc(c.provider)}${c.streamed ? ' · streamed' : ''}</span>${c.tag ? `<span class="tag">${esc(c.tag)}</span>` : ''}</div>
+    <div class="metrics">
+      ${metric('status', `<span class="st ${stClass(c.status)}">${c.status || 'ERR'}</span>`)}
+      ${metric('prompt tokens', tok(promptTok(c)) + cacheNote)}
+      ${metric('output tokens', tok(c.output_tokens))}
+      ${metric('cost', usd(c.cost_usd))}
+      ${metric('total time', secs(c.duration_ms))}
+      ${c.streamed ? metric('first token', secs(c.ttft_ms)) : ''}
+    </div>
+    <div class="tabs">${tabs.map(t => `<button data-tab="${t}" class="${state.tab === t ? 'on' : ''}">${t}</button>`).join('')}</div>
+  </div><div class="dbody" id="dbody"></div>`;
+  $('#detail').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { state.tab = b.dataset.tab; renderDetail(c); });
+  const body = $('#dbody');
+  const err = c.error ? `<div class="errbox">${esc(c.error)}</div>` : '';
+  if (state.tab === 'conversation') body.innerHTML = err + renderConversation(c);
+  if (state.tab === 'request') body.innerHTML = codeBlock(c.request_body);
+  if (state.tab === 'response') body.innerHTML = err + (c.streamed ? `<pre class="code">${esc(c.response_body)}</pre>` : codeBlock(c.response_body));
+  if (state.tab === 'headers') body.innerHTML = `<div class="section-label">request</div>${codeBlock(c.request_headers)}<div class="section-label">response</div>${codeBlock(c.response_headers)}`;
+  wireCollapse(body);
+}
+
+function codeBlock(s) {
+  const j = tryJSON(s);
+  return `<pre class="code">${j ? highlight(JSON.stringify(j, null, 2)) : esc(s || '(empty)')}</pre>`;
+}
+function highlight(json) {
+  return esc(json).replace(/("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g, (m, str, colon, kw) =>
+    str ? (colon ? `<span class="jk">${str}</span>${colon}` : `<span class="js">${str}</span>`) : kw ? `<span class="jb">${m}</span>` : `<span class="jn">${m}</span>`);
+}
+
+// Turn any provider's request into [{role, blocks:[{kind,label,text}]}].
+function requestMessages(c) {
+  const req = tryJSON(c.request_body);
+  if (!req) return { msgs: [], tools: [] };
+  const msgs = [];
+  const sys = req.system ?? req.instructions;
+  if (sys) msgs.push({ role: 'system', blocks: contentBlocks(sys) });
+  for (const m of req.messages || []) msgs.push({ role: m.role, blocks: contentBlocks(m.content, m) });
+  if (typeof req.input === 'string') msgs.push({ role: 'user', blocks: [{ kind: 'text', text: req.input }] });
+  else if (Array.isArray(req.input)) for (const it of req.input) {
+    if (it.type === 'function_call') msgs.push({ role: 'assistant', blocks: [{ kind: 'tool', label: `→ ${it.name}()`, text: pretty(it.arguments) }] });
+    else if (it.type === 'function_call_output') msgs.push({ role: 'tool', blocks: [{ kind: 'tool', label: `← ${it.call_id}`, text: pretty(it.output) }] });
+    else msgs.push({ role: it.role || it.type || 'input', blocks: contentBlocks(it.content) });
+  }
+  const tools = (req.tools || []).map(t => t.name || t.function?.name || t.type).filter(Boolean);
+  return { msgs, tools };
+}
+function pretty(v) { if (typeof v === 'string') { const j = tryJSON(v); return j ? JSON.stringify(j, null, 2) : v; } return JSON.stringify(v, null, 2); }
+function contentBlocks(content, msg = {}) {
+  const out = [];
+  if (typeof content === 'string') out.push({ kind: 'text', text: content });
+  else if (Array.isArray(content)) for (const b of content) {
+    if (typeof b === 'string') out.push({ kind: 'text', text: b });
+    else if (b.type === 'text' || b.type === 'input_text' || b.type === 'output_text') out.push({ kind: 'text', text: b.text });
+    else if (b.type === 'thinking') out.push({ kind: 'thinking', label: 'thinking', text: b.thinking });
+    else if (b.type === 'redacted_thinking') out.push({ kind: 'thinking', text: '[redacted thinking]' });
+    else if (b.type === 'tool_use') out.push({ kind: 'tool', label: `→ ${b.name}()  ${b.id}`, text: pretty(b.input) });
+    else if (b.type === 'tool_result') out.push({ kind: 'tool', label: `← result ${b.tool_use_id}${b.is_error ? '  (error)' : ''}`, text: typeof b.content === 'string' ? b.content : (b.content || []).map(x => x.text ?? `[${x.type}]`).join('\n') });
+    else if (/image/.test(b.type)) out.push({ kind: 'text', text: `[${b.type}]` });
+    else out.push({ kind: 'text', text: pretty(b) });
+  }
+  for (const tc of msg.tool_calls || []) out.push({ kind: 'tool', label: `→ ${tc.function?.name}()  ${tc.id}`, text: pretty(tc.function?.arguments) });
+  if (msg.role === 'tool' && msg.tool_call_id && out[0]) out[0] = { kind: 'tool', label: `← result ${msg.tool_call_id}`, text: out[0].text };
+  return out;
+}
+
+// Rebuild the response's blocks (text, thinking, tool calls), streamed or not.
+function responseBlocks(c) {
+  const blocks = [];
+  if (!c.streamed) {
+    const r = tryJSON(c.response_body);
+    if (!r) return c.response_text ? [{ kind: 'text', text: c.response_text }] : [];
+    if (Array.isArray(r.content)) return contentBlocks(r.content);
+    if (r.choices) return contentBlocks(r.choices[0]?.message?.content, r.choices[0]?.message || {});
+    if (Array.isArray(r.output)) {
+      for (const it of r.output) {
+        if (it.type === 'message') blocks.push(...contentBlocks(it.content));
+        if (it.type === 'function_call') blocks.push({ kind: 'tool', label: `→ ${it.name}()`, text: pretty(it.arguments) });
+      }
+      return blocks;
+    }
+    return blocks;
+  }
+  const byIndex = {}, oaTools = {};
+  for (const line of (c.response_body || '').split('\n')) {
+    if (!line.startsWith('data:')) continue;
+    const e = tryJSON(line.slice(5).trim()); if (!e) continue;
+    if (e.type === 'content_block_start') {
+      const b = e.content_block;
+      byIndex[e.index] = b.type === 'tool_use' ? { kind: 'tool', label: `→ ${b.name}()  ${b.id}`, text: '' }
+        : b.type === 'thinking' ? { kind: 'thinking', label: 'thinking', text: '' } : { kind: 'text', text: b.text || '' };
+    } else if (e.type === 'content_block_delta') {
+      const b = byIndex[e.index]; if (!b) continue;
+      b.text += e.delta.text ?? e.delta.thinking ?? e.delta.partial_json ?? '';
+    } else if (e.choices?.[0]?.delta) {
+      const d = e.choices[0].delta;
+      if (d.content) (byIndex.t ??= { kind: 'text', text: '' }).text += d.content;
+      for (const tc of d.tool_calls || []) {
+        const t = oaTools[tc.index] ??= { kind: 'tool', label: '', text: '' };
+        if (tc.function?.name) t.label = `→ ${tc.function.name}()  ${tc.id || ''}`;
+        t.text += tc.function?.arguments || '';
+      }
+    } else if (e.type === 'response.output_text.delta') {
+      (byIndex.t ??= { kind: 'text', text: '' }).text += e.delta;
+    } else if (e.type === 'response.output_item.done' && e.item?.type === 'function_call') {
+      oaTools[e.item.id] = { kind: 'tool', label: `→ ${e.item.name}()`, text: e.item.arguments };
+    }
+  }
+  return Object.values(byIndex).concat(Object.values(oaTools)).map(b => b.kind === 'tool' ? { ...b, text: pretty(b.text) } : b);
+}
+
+function blockHTML(b) {
+  return `<div class="block ${b.kind}">${b.label ? `<span class="lbl">${esc(b.label)}</span>` : ''}${esc(b.text)}</div>`;
+}
+function msgHTML(role, blocks, extraClass = '', note = '') {
+  return `<div class="msg ${extraClass}"><div class="who ${esc(role)}">${esc(role)}<span>${note}</span></div><div class="cbody">${blocks.map(blockHTML).join('') || '<div class="block dim">(empty)</div>'}</div></div>`;
+}
+function renderConversation(c) {
+  const { msgs, tools } = requestMessages(c);
+  let html = '';
+  if (tools.length) html += `<div class="msg"><div class="who tools">tools<span>${tools.length} defined</span></div><div class="block">${esc(tools.join(', '))}</div></div>`;
+  html += msgs.map(m => msgHTML(m.role, m.blocks)).join('');
+  const resp = responseBlocks(c);
+  html += `<div class="section-label">response</div>` + (c.status >= 400 ? codeBlock(c.response_body) : msgHTML('assistant', resp, 'response', `${tok(c.output_tokens)} tokens`));
+  return html;
+}
+function wireCollapse(root) {
+  root.querySelectorAll('.cbody').forEach(el => {
+    if (el.scrollHeight <= 280) return;
+    el.classList.add('collapsed');
+    const btn = document.createElement('button'); btn.className = 'more'; btn.textContent = 'show all';
+    btn.onclick = () => { const c = el.classList.toggle('collapsed'); btn.textContent = c ? 'show all' : 'collapse'; };
+    el.after(btn);
+  });
+}
+
+// ---------- diff ----------
+function lineDiff(a, b) {
+  const A = a.split('\n'), B = b.split('\n');
+  let pre = 0; while (pre < A.length && pre < B.length && A[pre] === B[pre]) pre++;
+  let suf = 0; while (suf < A.length - pre && suf < B.length - pre && A[A.length-1-suf] === B[B.length-1-suf]) suf++;
+  const a2 = A.slice(pre, A.length - suf), b2 = B.slice(pre, B.length - suf);
+  const out = A.slice(0, pre).map(t => [' ', t]);
+  if (a2.length * b2.length > 4e6) { a2.forEach(t => out.push(['-', t])); b2.forEach(t => out.push(['+', t])); }
+  else {
+    const n = a2.length, m = b2.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a2[i] === b2[j] ? L[i+1][j+1] + 1 : Math.max(L[i+1][j], L[i][j+1]);
+    let i = 0, j = 0;
+    while (i < n && j < m) { if (a2[i] === b2[j]) { out.push([' ', a2[i]]); i++; j++; } else if (L[i+1][j] >= L[i][j+1]) out.push(['-', a2[i++]]); else out.push(['+', b2[j++]]); }
+    while (i < n) out.push(['-', a2[i++]]); while (j < m) out.push(['+', b2[j++]]);
+  }
+  A.slice(A.length - suf).forEach(t => out.push([' ', t]));
+  return out;
+}
+function diffHTML(a, b) {
+  const ops = lineDiff(a, b);
+  if (!ops.some(o => o[0] !== ' ')) return `<div class="placeholder">Identical.</div>`;
+  let html = '', run = [], first = true;
+  const lines = ts => ts.map(t => `<div>  ${esc(t)}</div>`).join('');
+  // Show 3 lines of context around changes; fold longer unchanged runs.
+  const flush = last => {
+    const head = first ? 0 : 3, tail = last ? 0 : 3;
+    if (run.length > head + tail + 1) {
+      html += lines(run.slice(0, head)) + `<div class="s">⋯ ${run.length - head - tail} unchanged lines</div>` + lines(run.slice(run.length - tail));
+    } else html += lines(run);
+    run = [];
+  };
+  for (const [op, t] of ops) {
+    if (op === ' ') { run.push(t); continue; }
+    if (run.length) flush(false);
+    first = false;
+    html += `<div class="${op === '+' ? 'a' : 'd'}">${op} ${esc(t)}</div>`;
+  }
+  if (run.length) flush(true);
+  return `<div class="diff">${html}</div>`;
+}
+function deltaMetric(k, a, b, fmt, higherIsWorse = true) {
+  if (a == null || b == null) return metric(k, `${fmt(a)} → ${fmt(b)}`);
+  const d = b - a, pct = a ? Math.round(d / a * 100) : 0;
+  const cls = d === 0 ? '' : (d > 0) === higherIsWorse ? 'up' : 'down';
+  return metric(k, `${fmt(b)} <small class="delta ${cls}">${d === 0 ? '=' : (d > 0 ? '+' : '') + pct + '%'}</small>`);
+}
+async function showDiff() {
+  const [idA, idB] = [...state.checked].sort((x, y) => x - y);
+  const [a, b] = await Promise.all([getCall(idA), getCall(idB)]);
+  const reqA = pretty(tryJSON(a.request_body) ?? a.request_body), reqB = pretty(tryJSON(b.request_body) ?? b.request_body);
+  const txt = c => responseBlocks(c).map(x => (x.label ? x.label + '\n' : '') + x.text).join('\n\n') || c.response_text || '';
+  $('#detail').innerHTML = `<div class="dhead"><div class="dtitle"><h1>#${idA} ↔ #${idB}</h1>
+      <span class="dim mono">${esc(a.model)}${a.model !== b.model ? ' → ' + esc(b.model) : ''}</span></div>
+    <div class="metrics">
+      ${deltaMetric('prompt tokens', promptTok(a), promptTok(b), tok)}
+      ${deltaMetric('output tokens', a.output_tokens, b.output_tokens, tok)}
+      ${deltaMetric('cost', a.cost_usd, b.cost_usd, usd)}
+      ${deltaMetric('total time', a.duration_ms, b.duration_ms, secs)}
+    </div></div>
+    <div class="dbody"><div class="section-label">request (− #${idA}, + #${idB})</div>${diffHTML(reqA, reqB)}
+    <div class="section-label">response</div>${diffHTML(txt(a), txt(b))}</div>`;
+}
+$('#diffBtn').onclick = showDiff;
+
+// ---------- live updates ----------
+$('#pauseBtn').onclick = () => {
+  state.paused = !state.paused;
+  $('#pauseBtn').textContent = state.paused ? 'Resume' : 'Pause';
+  $('#live').classList.toggle('off', state.paused);
+};
+let qTimer;
+$('#q').oninput = e => { clearTimeout(qTimer); qTimer = setTimeout(() => { state.q = e.target.value; state.maxId = 0; loadList(true); }, 200); };
+
+async function tick() {
+  if (!state.paused) {
+    try { await Promise.all([loadList(false), loadStats()]); $('#live').classList.remove('off'); }
+    catch { $('#live').classList.add('off'); }
+  }
+  setTimeout(tick, 1500);
+}
+loadList(true).then(() => { loadStats(); if (state.calls[0]) select(state.calls[0].id); setTimeout(tick, 1500); });
+</script>
+</body>
+</html>
