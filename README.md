@@ -4,8 +4,6 @@ A local flight recorder for LLM API calls. Point your SDK at it, and every reque
 
 ![blackbox UI](docs/screenshot.png)
 
-No signup, no cloud, one binary. Your prompts never leave your machine.
-
 ## Why
 
 LLM calls are invisible and non-deterministic. When an agent goes off the rails on call 11 of 15, you usually can't see what was actually sent. blackbox sits at the network layer, so it sees the real payload no matter which framework built it:
